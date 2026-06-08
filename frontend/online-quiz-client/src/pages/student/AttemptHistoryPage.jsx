@@ -3,6 +3,10 @@ import { Link } from 'react-router-dom'
 import api, { getErrorMessage } from '../../api/client.js'
 import LoadingState from '../../components/LoadingState.jsx'
 import PageHeader from '../../components/PageHeader.jsx'
+import Alert from '../../components/ui/Alert.jsx'
+import Badge, { scoreVariant } from '../../components/ui/Badge.jsx'
+import Card from '../../components/ui/Card.jsx'
+import EmptyState from '../../components/ui/EmptyState.jsx'
 import { useI18n } from '../../i18n/I18nContext.jsx'
 import { formatDate } from '../../utils/format.js'
 
@@ -24,9 +28,9 @@ export default function AttemptHistoryPage() {
   return (
     <>
       <PageHeader title={t('attemptHistory')} subtitle={t('attemptHistorySubtitle')} />
-      {error && <div className="alert alert-danger">{error}</div>}
+      <Alert>{error}</Alert>
 
-      <div className="page-card p-3">
+      <Card className="p-0 overflow-hidden">
         <div className="table-responsive">
           <table className="table table-hover mb-0">
             <thead>
@@ -35,14 +39,14 @@ export default function AttemptHistoryPage() {
                 <th>{t('score')}</th>
                 <th>{t('correct')}</th>
                 <th>{t('submitted')}</th>
-                <th></th>
+                <th className="text-end">{t('actions')}</th>
               </tr>
             </thead>
             <tbody>
               {history.map((attempt) => (
                 <tr key={attempt.id}>
-                  <td>{attempt.quizTitle}</td>
-                  <td><span className="badge text-bg-primary">{attempt.score}%</span></td>
+                  <td className="fw-semibold">{attempt.quizTitle}</td>
+                  <td><Badge variant={scoreVariant(attempt.score)}>{attempt.score}%</Badge></td>
                   <td>{attempt.correctCount}/{attempt.totalQuestions}</td>
                   <td>{formatDate(attempt.submittedAt, language)}</td>
                   <td className="text-end">
@@ -51,12 +55,16 @@ export default function AttemptHistoryPage() {
                 </tr>
               ))}
               {history.length === 0 && (
-                <tr><td colSpan="5" className="text-muted">{t('noAttemptsYet')}</td></tr>
+                <tr>
+                  <td colSpan="5">
+                    <EmptyState compact message={t('noAttemptsYet')} />
+                  </td>
+                </tr>
               )}
             </tbody>
           </table>
         </div>
-      </div>
+      </Card>
     </>
   )
 }

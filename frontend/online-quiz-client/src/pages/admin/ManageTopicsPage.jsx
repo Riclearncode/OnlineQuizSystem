@@ -1,18 +1,30 @@
-import { Edit, PlusCircle, Save, Trash2 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { Edit, PlusCircle, Save, Search, Trash2 } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
 import api, { getErrorMessage } from '../../api/client.js'
 import LoadingState from '../../components/LoadingState.jsx'
 import PageHeader from '../../components/PageHeader.jsx'
+import Alert from '../../components/ui/Alert.jsx'
+import Button from '../../components/ui/Button.jsx'
+import Card from '../../components/ui/Card.jsx'
+import ConfirmDialog from '../../components/ui/ConfirmDialog.jsx'
+import EmptyState from '../../components/ui/EmptyState.jsx'
+import Input, { Textarea } from '../../components/ui/Input.jsx'
+import Modal from '../../components/ui/Modal.jsx'
 import { useI18n } from '../../i18n/I18nContext.jsx'
+import { formatDate } from '../../utils/format.js'
 
 const emptyForm = { name: '', description: '' }
 
 export default function ManageTopicsPage() {
-  const { t } = useI18n()
+  const { language, t } = useI18n()
   const [topics, setTopics] = useState([])
   const [form, setForm] = useState(emptyForm)
   const [editingId, setEditingId] = useState(null)
+  const [search, setSearch] = useState('')
+  const [modalOpen, setModalOpen] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
   async function loadTopics() {
@@ -26,27 +38,54 @@ export default function ManageTopicsPage() {
       .finally(() => setLoading(false))
   }, [])
 
+  const filteredTopics = useMemo(() => {
+    const value = search.trim().toLowerCase()
+    if (!value) return topics
+    return topics.filter((topic) =>
+      topic.name.toLowerCase().includes(value) ||
+      (topic.description || '').toLowerCase().includes(value))
+  }, [search, topics])
+
+  function openCreate() {
+    setEditingId(null)
+    setForm(emptyForm)
+    setModalOpen(true)
+  }
+
+  function openEdit(topic) {
+    setEditingId(topic.id)
+    setForm({ name: topic.name, description: topic.description || '' })
+    setModalOpen(true)
+  }
+
   async function handleSubmit(event) {
     event.preventDefault()
     setError('')
+    setSaving(true)
     try {
       if (editingId) {
         await api.put(`/topics/${editingId}`, form)
       } else {
         await api.post('/topics', form)
       }
+      setModalOpen(false)
       setForm(emptyForm)
       setEditingId(null)
       await loadTopics()
     } catch (err) {
       setError(getErrorMessage(err))
+    } finally {
+      setSaving(false)
     }
   }
 
-  async function handleDelete(id) {
+  async function confirmDelete() {
+    if (!deleteTarget) return
+
     setError('')
     try {
-      await api.delete(`/topics/${id}`)
+      await api.delete(`/topics/${deleteTarget.id}`)
+      setDeleteTarget(null)
       await loadTopics()
     } catch (err) {
       setError(getErrorMessage(err))
@@ -57,53 +96,92 @@ export default function ManageTopicsPage() {
 
   return (
     <>
-      <PageHeader title={t('manageTopics')} subtitle={t('manageTopicsSubtitle')} />
-      {error && <div className="alert alert-danger">{error}</div>}
+      <PageHeader
+        title={t('manageTopics')}
+        subtitle={t('manageTopicsSubtitle')}
+        action={<Button icon={PlusCircle} onClick={openCreate}>{t('addTopic')}</Button>}
+      />
+      <Alert>{error}</Alert>
 
-      <div className="row g-3">
-        <div className="col-lg-4">
-          <form className="page-card p-3 vstack gap-3" onSubmit={handleSubmit}>
-            <h2 className="h5 mb-0">{editingId ? t('editTopic') : t('newTopic')}</h2>
-            <div>
-              <label className="form-label">{t('name')}</label>
-              <input className="form-control" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required />
-            </div>
-            <div>
-              <label className="form-label">{t('description')}</label>
-              <textarea className="form-control" rows="4" value={form.description || ''} onChange={(event) => setForm({ ...form, description: event.target.value })} />
-            </div>
-            <div className="d-flex gap-2">
-              <button className="btn btn-primary d-inline-flex align-items-center gap-2">
-                {editingId ? <Save size={16} /> : <PlusCircle size={16} />}
-                {editingId ? t('save') : t('create')}
-              </button>
-              {editingId && <button type="button" className="btn btn-outline-secondary" onClick={() => { setEditingId(null); setForm(emptyForm) }}>{t('cancel')}</button>}
-            </div>
-          </form>
+      <Card className="p-4 mb-3">
+        <div className="input-group">
+          <span className="input-group-text"><Search size={16} /></span>
+          <input className="form-control" placeholder={t('searchTopics')} value={search} onChange={(event) => setSearch(event.target.value)} />
         </div>
+      </Card>
 
-        <div className="col-lg-8">
-          <div className="page-card p-3">
-            <div className="table-responsive">
-              <table className="table table-hover mb-0">
-                <thead><tr><th>{t('name')}</th><th>{t('description')}</th><th></th></tr></thead>
-                <tbody>
-                  {topics.map((topic) => (
-                    <tr key={topic.id}>
-                      <td className="fw-semibold">{topic.name}</td>
-                      <td>{topic.description}</td>
-                      <td className="text-end">
-                        <button className="btn btn-outline-primary btn-sm me-2" title={t('edit')} onClick={() => { setEditingId(topic.id); setForm({ name: topic.name, description: topic.description || '' }) }}><Edit size={15} /></button>
-                        <button className="btn btn-outline-danger btn-sm" title={t('delete')} onClick={() => handleDelete(topic.id)}><Trash2 size={15} /></button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
+      <Card className="p-0 overflow-hidden">
+        <div className="table-responsive">
+          <table className="table table-hover mb-0">
+            <thead>
+              <tr>
+                <th>{t('name')}</th>
+                <th>{t('description')}</th>
+                <th>{t('createdAt')}</th>
+                <th className="text-end">{t('actions')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredTopics.map((topic) => (
+                <tr key={topic.id}>
+                  <td className="fw-semibold">{topic.name}</td>
+                  <td className="text-muted">{topic.description || '-'}</td>
+                  <td>{formatDate(topic.createdAt, language)}</td>
+                  <td className="text-end">
+                    <Button className="me-2" icon={Edit} onClick={() => openEdit(topic)} size="sm" variant="outline">{t('edit')}</Button>
+                    <Button icon={Trash2} onClick={() => setDeleteTarget(topic)} size="sm" variant="dangerOutline">{t('delete')}</Button>
+                  </td>
+                </tr>
+              ))}
+              {filteredTopics.length === 0 && (
+                <tr>
+                  <td colSpan="4">
+                    <EmptyState compact message={t('noTopicsFound')} />
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
-      </div>
+      </Card>
+
+      <Modal
+        isOpen={modalOpen}
+        onClose={() => setModalOpen(false)}
+        title={editingId ? t('editTopic') : t('newTopic')}
+        footer={(
+          <>
+            <Button variant="subtle" onClick={() => setModalOpen(false)}>{t('cancel')}</Button>
+            <Button disabled={saving} form="topic-form" icon={editingId ? Save : PlusCircle} type="submit">
+              {saving ? t('creating') : editingId ? t('save') : t('create')}
+            </Button>
+          </>
+        )}
+      >
+        <form className="vstack gap-3" id="topic-form" onSubmit={handleSubmit}>
+          <Input
+            label={t('name')}
+            value={form.name}
+            onChange={(event) => setForm({ ...form, name: event.target.value })}
+            required
+          />
+          <Textarea
+            label={t('description')}
+            rows="4"
+            value={form.description || ''}
+            onChange={(event) => setForm({ ...form, description: event.target.value })}
+          />
+        </form>
+      </Modal>
+
+      <ConfirmDialog
+        confirmLabel={t('delete')}
+        isOpen={Boolean(deleteTarget)}
+        message={t('deleteTopicMessage')}
+        onCancel={() => setDeleteTarget(null)}
+        onConfirm={confirmDelete}
+        title={t('deleteTopicTitle')}
+      />
     </>
   )
 }

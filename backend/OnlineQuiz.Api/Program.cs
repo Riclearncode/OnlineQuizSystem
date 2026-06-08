@@ -47,7 +47,12 @@ builder.Services.AddAuthorization();
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("FrontendClient", policy =>
-        policy.WithOrigins("http://localhost:5173", "https://localhost:5173")
+        policy.SetIsOriginAllowed(origin =>
+            Uri.TryCreate(origin, UriKind.Absolute, out var uri) &&
+            (string.Equals(uri.Host, "localhost", StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(uri.Host, "127.0.0.1", StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(uri.Host, "::1", StringComparison.OrdinalIgnoreCase)) &&
+            uri.Port is >= 5173 and <= 5179)
             .AllowAnyHeader()
             .AllowAnyMethod());
 });

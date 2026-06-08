@@ -20,7 +20,7 @@ A full-stack web application for practicing and managing Data Structures and Alg
 - Database: SQL Server
 - ORM: Entity Framework Core
 - Auth: ASP.NET Core Identity, JWT Bearer
-- Frontend: React, Vite, Axios, React Router, Bootstrap
+- Frontend: React, Vite, Axios, React Router, Bootstrap, Tailwind CSS utilities
 - Tests: xUnit, EF Core InMemory
 
 ## Screenshots
@@ -72,6 +72,8 @@ Backend URL:
 - API: `http://localhost:5043/api`
 - Swagger: `http://localhost:5043/swagger`
 
+Development CORS allows local Vite origins on `localhost`, `127.0.0.1`, and `::1` from ports `5173` through `5179`.
+
 To change database settings, copy `backend/OnlineQuiz.Api/appsettings.example.json` values into your local `appsettings.Development.json`.
 
 ## How to Run Frontend
@@ -92,6 +94,8 @@ npm run dev
 Frontend URL:
 
 - `http://localhost:5173`
+
+If port `5173` is already in use, Vite may start on the next free port, for example `http://127.0.0.1:5174`. The backend already allows local Vite ports `5173-5179`.
 
 If the backend URL changes, create `.env.local`:
 

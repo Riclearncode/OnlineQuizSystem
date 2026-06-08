@@ -1,9 +1,13 @@
-import { BookOpen } from 'lucide-react'
+import { LogIn } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { getErrorMessage } from '../api/client.js'
 import { useAuth } from '../auth/AuthContext.jsx'
-import LanguageSwitcher from '../components/LanguageSwitcher.jsx'
+import AuthLayout from '../components/layout/AuthLayout.jsx'
+import Alert from '../components/ui/Alert.jsx'
+import Button from '../components/ui/Button.jsx'
+import Card from '../components/ui/Card.jsx'
+import Input from '../components/ui/Input.jsx'
 import { useI18n } from '../i18n/I18nContext.jsx'
 
 export default function LoginPage() {
@@ -30,47 +34,35 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-vh-100 d-flex align-items-center justify-content-center p-3">
-      <div className="auth-panel page-card p-4">
-        <div className="d-flex justify-content-end mb-3">
-          <LanguageSwitcher />
-        </div>
-        <div className="d-flex align-items-center gap-2 mb-4">
-          <div className="bg-primary text-white rounded-2 d-flex align-items-center justify-content-center" style={{ width: 42, height: 42 }}>
-            <BookOpen size={24} />
-          </div>
-          <div>
-            <h1 className="h4 mb-0">{t('onlineQuizSystem')}</h1>
-            <small className="text-muted">Data Structures and Algorithms</small>
-          </div>
+    <AuthLayout subtitle={t('authLoginSubtitle')} title={t('authLoginTitle')}>
+      <Card className="p-4 p-md-5">
+        <div className="mb-4">
+          <h1 className="h3 fw-bold mb-1">{t('login')}</h1>
+          <p className="text-muted mb-0">{t('assessmentPlatform')}</p>
         </div>
 
-        {error && <div className="alert alert-danger py-2">{error}</div>}
+        <Alert>{error}</Alert>
 
         <form onSubmit={handleSubmit} className="vstack gap-3">
-          <div>
-            <label className="form-label">{t('email')}</label>
-            <input
-              className="form-control"
-              type="email"
-              value={form.email}
-              onChange={(event) => setForm({ ...form, email: event.target.value })}
-              required
-            />
-          </div>
-          <div>
-            <label className="form-label">{t('password')}</label>
-            <input
-              className="form-control"
-              type="password"
-              value={form.password}
-              onChange={(event) => setForm({ ...form, password: event.target.value })}
-              required
-            />
-          </div>
-          <button className="btn btn-primary" disabled={loading}>
+          <Input
+            autoComplete="email"
+            label={t('email')}
+            type="email"
+            value={form.email}
+            onChange={(event) => setForm({ ...form, email: event.target.value })}
+            required
+          />
+          <Input
+            autoComplete="current-password"
+            label={t('password')}
+            type="password"
+            value={form.password}
+            onChange={(event) => setForm({ ...form, password: event.target.value })}
+            required
+          />
+          <Button className="w-100" disabled={loading} icon={LogIn} type="submit">
             {loading ? t('signingIn') : t('login')}
-          </button>
+          </Button>
         </form>
 
         <div className="border-top mt-4 pt-3 small text-muted">
@@ -78,7 +70,7 @@ export default function LoginPage() {
           <br />
           {t('studentAccount')} <Link to="/register">{t('createOne')}</Link>
         </div>
-      </div>
-    </div>
+      </Card>
+    </AuthLayout>
   )
 }

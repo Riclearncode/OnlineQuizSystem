@@ -1,0 +1,11 @@
+bin/
+obj/
+node_modules/
+dist/
+.vs/
+.vscode/
+*.user
+*.suo
+*.log
+backend/OnlineQuiz.Api/appsettings.Development.json
+frontend/online-quiz-client/.env.local

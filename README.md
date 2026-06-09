@@ -103,6 +103,42 @@ If the backend URL changes, create `.env.local`:
 VITE_API_URL=http://localhost:5043/api
 ```
 
+## Import Quiz Format
+
+Admin can import a quiz from **Admin > Quizzes > Import quiz**.
+
+Supported sources:
+
+- Excel `.xlsx`
+- PDF `.pdf`
+- Text `.txt` / `.md`
+- Pasted form text
+
+Excel must use this header row:
+
+```text
+Topic | Difficulty | Question | A | B | C | D | Correct | Explanation
+```
+
+Text/PDF must use question blocks like this, separated by `---`:
+
+```text
+Topic: Stack
+Difficulty: Easy
+Question: What principle does a stack use?
+A. FIFO
+B. LIFO
+C. Random access
+D. Hashing
+Correct: B
+Explanation: Stack uses last-in, first-out.
+---
+```
+
+`Difficulty` accepts `Easy`, `Medium`, `Hard` or Vietnamese equivalents `Dễ`, `Trung bình`, `Khó`. `Correct` accepts `A`, `B`, `C`, `D`, or numeric indexes `0-3` / `1-4`.
+
+During import, missing topics are created automatically. Existing questions with the same content are reused; new questions are added to the question bank and attached to the imported quiz.
+
 ## Default Accounts
 
 | Role | Email | Password |

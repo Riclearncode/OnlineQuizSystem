@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using OnlineQuiz.Api.Imports;
 using OnlineQuiz.Application.DTOs;
 using OnlineQuiz.Domain.Common;
 using OnlineQuiz.Domain.Entities;
@@ -14,6 +15,7 @@ namespace OnlineQuiz.Api.Controllers;
 [Authorize]
 public class QuizzesController : ControllerBase
 {
+    private static readonly string[] OptionLabels = ["A", "B", "C", "D"];
     private readonly ApplicationDbContext _dbContext;
 
     public QuizzesController(ApplicationDbContext dbContext)
@@ -89,6 +91,145 @@ public class QuizzesController : ControllerBase
 
         var created = await LoadQuizAsync(quiz.Id);
         return CreatedAtAction(nameof(GetById), new { id = quiz.Id }, ToDto(created!));
+    }
+
+    [Authorize(Roles = RoleNames.Admin)]
+    [HttpPost("import")]
+    [Consumes("multipart/form-data")]
+    [RequestSizeLimit(10_000_000)]
+    public async Task<ActionResult<QuizImportResultDto>> Import([FromForm] QuizImportForm request)
+    {
+        if (string.IsNullOrWhiteSpace(request.Title))
+        {
+            throw new ArgumentException("Quiz title is required.");
+        }
+
+        if (request.TimeLimitMinutes <= 0)
+        {
+            throw new ArgumentException("Time limit must be greater than zero.");
+        }
+
+        var importedQuestions = await ReadImportQuestionsAsync(request);
+        var warnings = new List<string>();
+        var topicLookup = await _dbContext.Topics
+            .ToDictionaryAsync(x => x.Name, StringComparer.OrdinalIgnoreCase);
+        var createdTopicCount = 0;
+
+        foreach (var topicName in importedQuestions.Select(x => x.TopicName.Trim()).Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            if (topicLookup.ContainsKey(topicName))
+            {
+                continue;
+            }
+
+            var topic = new Topic
+            {
+                Name = topicName,
+                Description = $"Imported topic: {topicName}",
+                CreatedAt = DateTime.UtcNow
+            };
+
+            _dbContext.Topics.Add(topic);
+            topicLookup[topicName] = topic;
+            createdTopicCount++;
+        }
+
+        if (createdTopicCount > 0)
+        {
+            await _dbContext.SaveChangesAsync();
+        }
+
+        var existingQuestionLookup = await _dbContext.Questions
+            .AsNoTracking()
+            .Select(x => new { x.Id, x.Content })
+            .ToDictionaryAsync(x => NormalizeContent(x.Content), x => x.Id, StringComparer.OrdinalIgnoreCase);
+
+        var questionIds = new List<int>();
+        var createdQuestionCount = 0;
+        var reusedQuestionCount = 0;
+
+        foreach (var imported in importedQuestions)
+        {
+            var contentKey = NormalizeContent(imported.Content);
+            if (existingQuestionLookup.TryGetValue(contentKey, out var existingQuestionId))
+            {
+                questionIds.Add(existingQuestionId);
+                reusedQuestionCount++;
+                continue;
+            }
+
+            var topic = topicLookup[imported.TopicName.Trim()];
+            var question = new Question
+            {
+                Content = imported.Content.Trim(),
+                TopicId = topic.Id,
+                Difficulty = imported.Difficulty,
+                Explanation = imported.Explanation.Trim(),
+                CorrectOptionId = 0,
+                CreatedAt = DateTime.UtcNow,
+                Options = imported.Options.Select((text, index) => new AnswerOption
+                {
+                    Label = OptionLabels[index],
+                    Text = text.Trim()
+                }).ToList()
+            };
+
+            _dbContext.Questions.Add(question);
+            await _dbContext.SaveChangesAsync();
+
+            question.CorrectOptionId = question.Options
+                .OrderBy(x => x.Label)
+                .ElementAt(imported.CorrectOptionIndex)
+                .Id;
+            await _dbContext.SaveChangesAsync();
+
+            existingQuestionLookup[contentKey] = question.Id;
+            questionIds.Add(question.Id);
+            createdQuestionCount++;
+        }
+
+        var uniqueQuestionIds = new List<int>();
+        var seenQuestionIds = new HashSet<int>();
+        foreach (var questionId in questionIds)
+        {
+            if (seenQuestionIds.Add(questionId))
+            {
+                uniqueQuestionIds.Add(questionId);
+            }
+            else
+            {
+                warnings.Add($"Duplicate question id {questionId} was skipped in the quiz.");
+            }
+        }
+
+        if (uniqueQuestionIds.Count == 0)
+        {
+            throw new ArgumentException("Import must contain at least one unique question.");
+        }
+
+        var quiz = new Quiz
+        {
+            Title = request.Title.Trim(),
+            Description = request.Description?.Trim(),
+            TimeLimitMinutes = request.TimeLimitMinutes,
+            TotalQuestions = uniqueQuestionIds.Count,
+            IsActive = request.IsActive,
+            CreatedAt = DateTime.UtcNow,
+            QuizQuestions = uniqueQuestionIds.Select(id => new QuizQuestion { QuestionId = id }).ToList()
+        };
+
+        _dbContext.Quizzes.Add(quiz);
+        await _dbContext.SaveChangesAsync();
+
+        var createdQuiz = await LoadQuizAsync(quiz.Id);
+        var result = new QuizImportResultDto(
+            ToDto(createdQuiz!),
+            createdQuestionCount,
+            reusedQuestionCount,
+            createdTopicCount,
+            warnings);
+
+        return CreatedAtAction(nameof(GetById), new { id = quiz.Id }, result);
     }
 
     [Authorize(Roles = RoleNames.Admin)]
@@ -183,6 +324,53 @@ public class QuizzesController : ControllerBase
         }
 
         return questionIds;
+    }
+
+    private static async Task<IReadOnlyList<ImportedQuestion>> ReadImportQuestionsAsync(QuizImportForm request)
+    {
+        var questions = new List<ImportedQuestion>();
+
+        if (request.File is { Length: > 0 })
+        {
+            var extension = Path.GetExtension(request.File.FileName).ToLowerInvariant();
+            await using var stream = request.File.OpenReadStream();
+
+            if (extension == ".xlsx")
+            {
+                questions.AddRange(QuizImportParser.ParseExcel(stream));
+            }
+            else if (extension == ".pdf")
+            {
+                using var memoryStream = new MemoryStream();
+                await stream.CopyToAsync(memoryStream);
+                memoryStream.Position = 0;
+                var text = QuizImportParser.ExtractPdfText(memoryStream);
+                questions.AddRange(QuizImportParser.ParseText(text));
+            }
+            else if (extension is ".txt" or ".md")
+            {
+                using var reader = new StreamReader(stream);
+                questions.AddRange(QuizImportParser.ParseText(await reader.ReadToEndAsync()));
+            }
+            else
+            {
+                throw new ArgumentException("Unsupported import file type. Use .xlsx, .pdf, .txt, or the text form.");
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.RawText))
+        {
+            questions.AddRange(QuizImportParser.ParseText(request.RawText));
+        }
+
+        return questions.Count == 0
+            ? throw new ArgumentException("Upload a standard .xlsx/.pdf file or paste standard form text.")
+            : questions;
+    }
+
+    private static string NormalizeContent(string content)
+    {
+        return string.Join(' ', content.Trim().Split(Array.Empty<char>(), StringSplitOptions.RemoveEmptyEntries));
     }
 
     private static void ValidateQuiz(QuizUpsertRequest request)

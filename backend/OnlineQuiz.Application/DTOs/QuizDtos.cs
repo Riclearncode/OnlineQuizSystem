@@ -28,3 +28,10 @@ public record QuizUpsertRequest(
     bool IsActive,
     IReadOnlyList<int> TopicIds,
     IReadOnlyList<Difficulty> Difficulties);
+
+public record QuizImportResultDto(
+    QuizDto Quiz,
+    int CreatedQuestionCount,
+    int ReusedQuestionCount,
+    int CreatedTopicCount,
+    IReadOnlyList<string> Warnings);

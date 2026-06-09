@@ -1,4 +1,4 @@
-import { Clock, Edit, PlusCircle, Save, Trash2 } from 'lucide-react'
+import { Clock, Edit, FileUp, PlusCircle, Save, Trash2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import api, { getErrorMessage } from '../../api/client.js'
 import LoadingState from '../../components/LoadingState.jsx'
@@ -25,17 +25,30 @@ const emptyForm = {
   difficulties: ['Easy'],
 }
 
+const emptyImportForm = {
+  title: '',
+  description: '',
+  timeLimitMinutes: 25,
+  isActive: true,
+  file: null,
+  rawText: '',
+}
+
 export default function ManageQuizzesPage() {
   const { language, t } = useI18n()
   const [topics, setTopics] = useState([])
   const [quizzes, setQuizzes] = useState([])
   const [form, setForm] = useState(emptyForm)
+  const [importForm, setImportForm] = useState(emptyImportForm)
   const [editingId, setEditingId] = useState(null)
   const [modalOpen, setModalOpen] = useState(false)
+  const [importModalOpen, setImportModalOpen] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [importing, setImporting] = useState(false)
   const [error, setError] = useState('')
+  const [success, setSuccess] = useState('')
 
   async function loadQuizzes() {
     const { data } = await api.get('/quizzes')
@@ -59,6 +72,11 @@ export default function ManageQuizzesPage() {
     setModalOpen(true)
   }
 
+  function openImport() {
+    setImportForm(emptyImportForm)
+    setImportModalOpen(true)
+  }
+
   function startEdit(quiz) {
     setEditingId(quiz.id)
     setForm({
@@ -79,6 +97,11 @@ export default function ManageQuizzesPage() {
     setModalOpen(false)
   }
 
+  function resetImportForm() {
+    setImportForm(emptyImportForm)
+    setImportModalOpen(false)
+  }
+
   function toggleTopic(topicId) {
     const value = String(topicId)
     const topicIds = form.topicIds.includes(value)
@@ -97,6 +120,7 @@ export default function ManageQuizzesPage() {
   async function handleSubmit(event) {
     event.preventDefault()
     setError('')
+    setSuccess('')
     setSaving(true)
     const payload = {
       ...form,
@@ -120,6 +144,46 @@ export default function ManageQuizzesPage() {
     }
   }
 
+  async function handleImportSubmit(event) {
+    event.preventDefault()
+    setError('')
+    setSuccess('')
+
+    if (!importForm.file && !importForm.rawText.trim()) {
+      setError(t('pasteStandardForm'))
+      return
+    }
+
+    setImporting(true)
+    const formData = new FormData()
+    formData.append('title', importForm.title)
+    formData.append('description', importForm.description || '')
+    formData.append('timeLimitMinutes', String(importForm.timeLimitMinutes))
+    formData.append('isActive', String(importForm.isActive))
+    if (importForm.file) {
+      formData.append('file', importForm.file)
+    }
+    if (importForm.rawText.trim()) {
+      formData.append('rawText', importForm.rawText)
+    }
+
+    try {
+      const { data } = await api.post('/quizzes/import', formData)
+      resetImportForm()
+      await loadQuizzes()
+      setSuccess(t('importSuccess', {
+        title: data.quiz.title,
+        created: data.createdQuestionCount,
+        reused: data.reusedQuestionCount,
+        topics: data.createdTopicCount,
+      }))
+    } catch (err) {
+      setError(getErrorMessage(err))
+    } finally {
+      setImporting(false)
+    }
+  }
+
   async function confirmDelete() {
     if (!deleteTarget) return
 
@@ -140,9 +204,17 @@ export default function ManageQuizzesPage() {
       <PageHeader
         title={t('manageQuizzes')}
         subtitle={t('manageQuizzesSubtitle')}
-        action={<Button icon={PlusCircle} onClick={openCreate}>{t('createQuiz')}</Button>}
+        action={(
+          <div className="d-flex flex-wrap gap-2">
+            <Button icon={FileUp} onClick={openImport} variant="outline">{t('importQuiz')}</Button>
+            <Button icon={PlusCircle} onClick={openCreate}>{t('createQuiz')}</Button>
+          </div>
+        )}
       />
       <Alert>{error}</Alert>
+      <Alert variant="success">{success}</Alert>
+
+      <ImportFormatGuide t={t} />
 
       <Card className="p-0 overflow-hidden">
         <div className="table-responsive">
@@ -261,6 +333,74 @@ export default function ManageQuizzesPage() {
         </form>
       </Modal>
 
+      <Modal
+        isOpen={importModalOpen}
+        onClose={resetImportForm}
+        title={t('importQuizTitle')}
+        footer={(
+          <>
+            <Button variant="subtle" onClick={resetImportForm}>{t('cancel')}</Button>
+            <Button disabled={importing} form="quiz-import-form" icon={FileUp} type="submit">
+              {importing ? t('importingQuiz') : t('importQuizNow')}
+            </Button>
+          </>
+        )}
+      >
+        <form className="vstack gap-3" id="quiz-import-form" onSubmit={handleImportSubmit}>
+          <p className="text-muted mb-0">{t('importQuizSubtitle')}</p>
+          <Input
+            label={t('title')}
+            value={importForm.title}
+            onChange={(event) => setImportForm({ ...importForm, title: event.target.value })}
+            required
+          />
+          <Textarea
+            label={t('description')}
+            rows="2"
+            value={importForm.description}
+            onChange={(event) => setImportForm({ ...importForm, description: event.target.value })}
+          />
+          <div className="row g-2">
+            <Input
+              className="col-md-6"
+              label={t('timeLimit')}
+              min="1"
+              type="number"
+              value={importForm.timeLimitMinutes}
+              onChange={(event) => setImportForm({ ...importForm, timeLimitMinutes: event.target.value })}
+              required
+            />
+            <div className="col-md-6 d-flex align-items-end">
+              <div className="form-check form-switch mb-2">
+                <input className="form-check-input" type="checkbox" checked={importForm.isActive} onChange={(event) => setImportForm({ ...importForm, isActive: event.target.checked })} />
+                <label className="form-check-label fw-semibold">{t('active')}</label>
+              </div>
+            </div>
+          </div>
+          <div>
+            <label className="form-label">{t('chooseFile')}</label>
+            <input
+              accept=".xlsx,.pdf,.txt,.md"
+              className="form-control"
+              type="file"
+              onChange={(event) => setImportForm({ ...importForm, file: event.target.files?.[0] || null })}
+            />
+            <div className="form-text">{t('supportedImportFiles')}</div>
+          </div>
+          <Textarea
+            label={t('rawText')}
+            placeholder={t('pasteStandardForm')}
+            rows="7"
+            value={importForm.rawText}
+            onChange={(event) => setImportForm({ ...importForm, rawText: event.target.value })}
+          />
+          <Card className="p-3 bg-light border-0">
+            <div className="fw-bold mb-2">{t('standardImportFormat')}</div>
+            <pre className="small mb-0 whitespace-pre-wrap">{t('importFormatSample')}</pre>
+          </Card>
+        </form>
+      </Modal>
+
       <ConfirmDialog
         confirmLabel={t('delete')}
         isOpen={Boolean(deleteTarget)}
@@ -270,5 +410,40 @@ export default function ManageQuizzesPage() {
         title={t('deleteQuizTitle')}
       />
     </>
+  )
+}
+
+function ImportFormatGuide({ t }) {
+  const columns = ['Topic', 'Difficulty', 'Question', 'A', 'B', 'C', 'D', 'Correct', 'Explanation']
+
+  return (
+    <Card className="p-4 mb-3">
+      <div className="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
+        <div>
+          <h2 className="h5 fw-bold mb-1">{t('importFormatGuide')}</h2>
+          <p className="text-muted mb-0">{t('importFormatGuideSubtitle')}</p>
+        </div>
+        <Badge variant="light">.xlsx .pdf .txt .md</Badge>
+      </div>
+
+      <div className="row g-4">
+        <div className="col-lg-5">
+          <div className="fw-bold mb-2">{t('excelFormat')}</div>
+          <div className="text-muted small mb-2">{t('excelColumns')}</div>
+          <div className="d-flex flex-wrap gap-2">
+            {columns.map((column) => (
+              <code className="bg-light border rounded-pill px-2 py-1 text-primary" key={column}>{column}</code>
+            ))}
+          </div>
+          <p className="text-muted small mt-3 mb-0">{t('correctAccepted')}</p>
+        </div>
+
+        <div className="col-lg-7">
+          <div className="fw-bold mb-2">{t('textPdfFormat')}</div>
+          <pre className="bg-light border rounded-4 p-3 small mb-2 whitespace-pre-wrap">{t('importFormatSample')}</pre>
+          <p className="text-muted small mb-0">{t('importFormatNote')}</p>
+        </div>
+      </div>
+    </Card>
   )
 }

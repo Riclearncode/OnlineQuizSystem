@@ -39,8 +39,41 @@ Admin only.
 - `GET /api/quizzes` lists active quizzes for Students and all quizzes for Admin.
 - `GET /api/quizzes/{id}` returns quiz metadata and selected questions.
 - `POST /api/quizzes` creates a quiz from topic/difficulty filters. Admin only.
+- `POST /api/quizzes/import` imports a quiz from `.xlsx`, `.pdf`, `.txt`, or pasted text form data. Admin only.
 - `PUT /api/quizzes/{id}` updates quiz metadata and selected questions. Admin only.
 - `DELETE /api/quizzes/{id}` deletes a quiz if it has no attempts. Admin only.
+
+Quiz import uses `multipart/form-data`:
+
+```text
+title: Required quiz title
+description: Optional
+timeLimitMinutes: Required positive number
+isActive: true/false
+file: Optional .xlsx/.pdf/.txt/.md
+rawText: Optional standard text blocks
+```
+
+Excel `.xlsx` columns:
+
+```text
+Topic | Difficulty | Question | A | B | C | D | Correct | Explanation
+```
+
+Text/PDF block format:
+
+```text
+Topic: Stack
+Difficulty: Easy
+Question: What principle does a stack use?
+A. FIFO
+B. LIFO
+C. Random access
+D. Hashing
+Correct: B
+Explanation: Stack uses last-in, first-out.
+---
+```
 
 ## Quiz Attempts
 

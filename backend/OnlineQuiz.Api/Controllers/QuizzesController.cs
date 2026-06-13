@@ -164,13 +164,16 @@ public class QuizzesController : ControllerBase
                 Content = imported.Content.Trim(),
                 TopicId = topic.Id,
                 Difficulty = imported.Difficulty,
+                QuestionType = OnlineQuiz.Domain.Enums.QuestionType.SingleChoice,
                 Explanation = imported.Explanation.Trim(),
                 CorrectOptionId = 0,
                 CreatedAt = DateTime.UtcNow,
                 Options = imported.Options.Select((text, index) => new AnswerOption
                 {
                     Label = OptionLabels[index],
-                    Text = text.Trim()
+                    Text = text.Trim(),
+                    IsCorrect = index == imported.CorrectOptionIndex,
+                    OptionOrder = index
                 }).ToList()
             };
 
@@ -401,7 +404,8 @@ public class QuizzesController : ControllerBase
                 x.Content,
                 x.TopicId,
                 x.Topic?.Name ?? string.Empty,
-                x.Difficulty))
+                x.Difficulty,
+                x.QuestionType))
             .ToList();
 
         return new QuizDto(

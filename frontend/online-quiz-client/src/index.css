@@ -204,14 +204,34 @@ textarea {
   inset: 0;
   z-index: 1050;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
   padding: 1rem;
+  overflow-y: auto;
   pointer-events: none;
 }
 
 .modal-panel-custom > * {
   pointer-events: auto;
+}
+
+.modal-card-custom {
+  display: flex;
+  max-height: calc(100vh - 2rem);
+  overflow: hidden;
+  flex-direction: column;
+}
+
+.modal-header-custom,
+.modal-footer-custom {
+  flex: 0 0 auto;
+  background: #ffffff;
+}
+
+.modal-body-custom {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .quiz-progress-track {

@@ -1,3 +1,5 @@
+using OnlineQuiz.Domain.Enums;
+
 namespace OnlineQuiz.Application.DTOs;
 
 public record StartQuizRequest(int QuizId);
@@ -15,13 +17,37 @@ public record TakeQuizQuestionDto(
     int Id,
     string Content,
     string TopicName,
-    IReadOnlyList<AnswerOptionDto> Options);
+    Difficulty Difficulty,
+    QuestionType QuestionType,
+    string? CodeSnippet,
+    IReadOnlyList<AnswerOptionDto> Options,
+    IReadOnlyList<string> MatchingLeftItems,
+    IReadOnlyList<string> MatchingRightItems,
+    IReadOnlyList<string> OrderingItems);
 
 public record SubmitQuizRequest(
     int AttemptId,
     IReadOnlyList<SubmitAnswerRequest> Answers);
 
-public record SubmitAnswerRequest(int QuestionId, int? SelectedOptionId);
+public class SubmitAnswerRequest
+{
+    public SubmitAnswerRequest()
+    {
+    }
+
+    public SubmitAnswerRequest(int questionId, int? selectedOptionId)
+    {
+        QuestionId = questionId;
+        SelectedOptionId = selectedOptionId;
+    }
+
+    public int QuestionId { get; init; }
+    public int? SelectedOptionId { get; init; }
+    public IReadOnlyList<int> SelectedOptionIds { get; init; } = [];
+    public string? TextAnswer { get; init; }
+    public IReadOnlyDictionary<string, string> MatchingAnswer { get; init; } = new Dictionary<string, string>();
+    public IReadOnlyList<string> OrderingAnswer { get; init; } = [];
+}
 
 public record QuizAttemptSummaryDto(
     int Id,
@@ -53,9 +79,23 @@ public record QuizAttemptResultDto(
 public record AttemptAnswerResultDto(
     int QuestionId,
     string QuestionContent,
+    Difficulty Difficulty,
+    QuestionType QuestionType,
+    string? CodeSnippet,
     int? SelectedOptionId,
     string? SelectedOptionText,
+    IReadOnlyList<int> SelectedOptionIds,
+    IReadOnlyList<AnswerOptionDto> SelectedOptions,
+    string? TextAnswer,
+    string? MatchingAnswerJson,
+    string? OrderingAnswerJson,
     int CorrectOptionId,
     string CorrectOptionText,
+    IReadOnlyList<AnswerOptionDto> CorrectOptions,
+    IReadOnlyList<string> CorrectTextAnswers,
+    IReadOnlyList<MatchingPairDto> CorrectMatchingPairs,
+    IReadOnlyList<OrderingItemDto> CorrectOrderingItems,
     bool IsCorrect,
+    decimal Score,
+    decimal MaxScore,
     string Explanation);

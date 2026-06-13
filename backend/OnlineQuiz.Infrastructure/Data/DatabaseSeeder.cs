@@ -105,6 +105,7 @@ public static class DatabaseSeeder
 
         await AddSeedQuestionsAsync(dbContext, topics, existingContents, GetSeedQuestions());
         await AddSeedQuestionsAsync(dbContext, topics, existingContents, GetVietnameseSeedQuestions());
+        await AddAdvancedSeedQuestionsAsync(dbContext, topics, existingContents, DatabaseAdvancedSeedData.GetQuestionTypeSeedQuestions());
     }
 
     private static async Task AddSeedQuestionsAsync(
@@ -133,7 +134,9 @@ public static class DatabaseSeeder
                 Options = seed.Options.Select((text, index) => new AnswerOption
                 {
                     Label = OptionLabels[index],
-                    Text = text
+                    Text = text,
+                    IsCorrect = index == seed.CorrectIndex,
+                    OptionOrder = index
                 }).ToList()
             };
 
@@ -155,6 +158,79 @@ public static class DatabaseSeeder
                 .OrderBy(x => x.Label)
                 .ElementAt(pair.CorrectIndex)
                 .Id;
+        }
+
+        await dbContext.SaveChangesAsync();
+    }
+
+    private static async Task AddAdvancedSeedQuestionsAsync(
+        ApplicationDbContext dbContext,
+        IReadOnlyDictionary<string, Topic> topics,
+        ISet<string> existingContents,
+        IReadOnlyList<AdvancedSeedQuestion> seedQuestions)
+    {
+        var questions = new List<Question>();
+
+        foreach (var seed in seedQuestions)
+        {
+            if (existingContents.Contains(seed.Content) || !topics.TryGetValue(seed.TopicName, out var topic))
+            {
+                continue;
+            }
+
+            var question = new Question
+            {
+                Content = seed.Content,
+                TopicId = topic.Id,
+                Difficulty = seed.Difficulty,
+                QuestionType = seed.QuestionType,
+                Explanation = seed.Explanation,
+                CodeSnippet = seed.CodeSnippet,
+                CorrectOptionId = 0,
+                CreatedAt = DateTime.UtcNow,
+                Options = seed.Options.Select((option, index) => new AnswerOption
+                {
+                    Label = ToOptionLabel(index),
+                    Text = option.Text,
+                    IsCorrect = option.IsCorrect,
+                    OptionOrder = index
+                }).ToList(),
+                CorrectTextAnswers = seed.CorrectTextAnswers.Select(text => new CorrectTextAnswer
+                {
+                    CorrectText = text,
+                    IsCaseSensitive = false
+                }).ToList(),
+                MatchingPairs = seed.MatchingPairs.Select((pair, index) => new MatchingPair
+                {
+                    LeftItem = pair.LeftItem,
+                    RightItem = pair.RightItem,
+                    PairOrder = index
+                }).ToList(),
+                OrderingItems = seed.OrderingItems.Select((content, index) => new OrderingItem
+                {
+                    Content = content,
+                    CorrectOrder = index
+                }).ToList()
+            };
+
+            questions.Add(question);
+            existingContents.Add(seed.Content);
+            dbContext.Questions.Add(question);
+        }
+
+        if (questions.Count == 0)
+        {
+            return;
+        }
+
+        await dbContext.SaveChangesAsync();
+
+        foreach (var question in questions)
+        {
+            question.CorrectOptionId = question.Options
+                .OrderBy(x => x.OptionOrder)
+                .FirstOrDefault(x => x.IsCorrect)
+                ?.Id ?? 0;
         }
 
         await dbContext.SaveChangesAsync();
@@ -201,6 +277,17 @@ public static class DatabaseSeeder
             questions
                 .Where(x => x.Topic!.Name is "Graph" or "Tree" or "Recursion")
                 .Take(12)
+                .Select(x => x.Id));
+
+        AddQuiz(
+            dbContext,
+            existingTitles,
+            "Mixed Question Types Quiz",
+            "Practice DSA with single choice, multiple choice, true/false, fill blank, matching, ordering, code output, and Big O questions.",
+            35,
+            questions
+                .Where(x => x.Content.StartsWith("[QT-", StringComparison.Ordinal))
+                .Take(20)
                 .Select(x => x.Id));
 
         AddQuiz(
@@ -484,6 +571,11 @@ public static class DatabaseSeeder
                 ["O(1)", "O(log n)", "O(n)", "O(n^2)"], 2,
                 "Nếu vòng lặp xử lý mỗi phần tử một lần thì thời gian tăng tuyến tính theo n.")
         ];
+    }
+
+    private static string ToOptionLabel(int index)
+    {
+        return ((char)('A' + index)).ToString();
     }
 
     private record SeedQuestion(

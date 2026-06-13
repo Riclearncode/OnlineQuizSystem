@@ -18,7 +18,8 @@ public record QuestionSummaryDto(
     string Content,
     int TopicId,
     string TopicName,
-    Difficulty Difficulty);
+    Difficulty Difficulty,
+    QuestionType QuestionType);
 
 public record QuizUpsertRequest(
     string Title,

@@ -15,7 +15,7 @@ export default function LoginPage() {
   const { t } = useI18n()
   const navigate = useNavigate()
   const location = useLocation()
-  const [form, setForm] = useState({ email: 'admin@quiz.com', password: 'Admin@123' })
+  const [form, setForm] = useState({ email: '', password: '' })
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -65,9 +65,7 @@ export default function LoginPage() {
           </Button>
         </form>
 
-        <div className="border-top mt-4 pt-3 small text-muted">
-          {t('defaultAdmin')}: <strong>admin@quiz.com</strong> / <strong>Admin@123</strong>
-          <br />
+        <div className="border-top mt-4 pt-3 small">
           {t('studentAccount')} <Link to="/register">{t('createOne')}</Link>
         </div>
       </Card>

@@ -1,8 +1,9 @@
-import { CheckCircle2, Eye, XCircle } from 'lucide-react'
+import { Eye } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import api, { getErrorMessage } from '../../api/client.js'
 import LoadingState from '../../components/LoadingState.jsx'
 import PageHeader from '../../components/PageHeader.jsx'
+import AttemptAnswerReview from '../../components/quiz/AttemptAnswerReview.jsx'
 import Alert from '../../components/ui/Alert.jsx'
 import Badge, { scoreVariant } from '../../components/ui/Badge.jsx'
 import Button from '../../components/ui/Button.jsx'
@@ -109,18 +110,8 @@ export default function AdminAttemptsPage() {
                   {detail.correctCount}/{detail.totalQuestions} {t('correct').toLowerCase()}
                 </p>
                 <div className="vstack gap-2">
-                  {detail.answers.map((answer) => (
-                    <div className="border rounded-4 p-3" key={answer.questionId}>
-                      <div className="d-flex gap-2">
-                        {answer.isCorrect ? <CheckCircle2 className="text-success mt-1" size={18} /> : <XCircle className="text-danger mt-1" size={18} />}
-                        <div>
-                          <div className="fw-semibold">{answer.questionContent}</div>
-                          <small className="text-muted">
-                            {t('selected')}: {answer.selectedOptionText || t('notAnswered')} | {t('correct')}: {answer.correctOptionText}
-                          </small>
-                        </div>
-                      </div>
-                    </div>
+                  {detail.answers.map((answer, index) => (
+                    <AttemptAnswerReview answer={answer} compact key={answer.questionId} number={index + 1} />
                   ))}
                 </div>
               </>

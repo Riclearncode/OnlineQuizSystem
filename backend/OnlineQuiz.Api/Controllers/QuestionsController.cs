@@ -25,13 +25,10 @@ public class QuestionsController : ControllerBase
     public async Task<ActionResult<IReadOnlyList<QuestionDto>>> GetAll(
         [FromQuery] string? search,
         [FromQuery] int? topicId,
-        [FromQuery] Difficulty? difficulty)
+        [FromQuery] Difficulty? difficulty,
+        [FromQuery] QuestionType? questionType)
     {
-        var query = _dbContext.Questions
-            .AsNoTracking()
-            .Include(x => x.Topic)
-            .Include(x => x.Options)
-            .AsQueryable();
+        var query = BuildQuestionQuery();
 
         if (!string.IsNullOrWhiteSpace(search))
         {
@@ -48,6 +45,11 @@ public class QuestionsController : ControllerBase
             query = query.Where(x => x.Difficulty == difficulty.Value);
         }
 
+        if (questionType.HasValue)
+        {
+            query = query.Where(x => x.QuestionType == questionType.Value);
+        }
+
         var questions = await query
             .OrderByDescending(x => x.CreatedAt)
             .ToListAsync();
@@ -58,12 +60,7 @@ public class QuestionsController : ControllerBase
     [HttpGet("{id:int}")]
     public async Task<ActionResult<QuestionDto>> GetById(int id)
     {
-        var question = await _dbContext.Questions
-            .AsNoTracking()
-            .Include(x => x.Topic)
-            .Include(x => x.Options)
-            .FirstOrDefaultAsync(x => x.Id == id);
-
+        var question = await BuildQuestionQuery().FirstOrDefaultAsync(x => x.Id == id);
         return question is null ? NotFound(new { message = "Question was not found." }) : Ok(ToDto(question));
     }
 
@@ -82,20 +79,19 @@ public class QuestionsController : ControllerBase
             Content = request.Content.Trim(),
             TopicId = request.TopicId,
             Difficulty = request.Difficulty,
+            QuestionType = request.QuestionType,
             Explanation = request.Explanation.Trim(),
+            CodeSnippet = NormalizeNullable(request.CodeSnippet),
             CorrectOptionId = 0,
-            CreatedAt = DateTime.UtcNow,
-            Options = request.Options.Select((option, index) => new AnswerOption
-            {
-                Label = NormalizeLabel(option.Label, index),
-                Text = option.Text.Trim()
-            }).ToList()
+            CreatedAt = DateTime.UtcNow
         };
+
+        ApplyQuestionChildren(question, request);
 
         _dbContext.Questions.Add(question);
         await _dbContext.SaveChangesAsync();
 
-        question.CorrectOptionId = question.Options.OrderBy(x => x.Label).ElementAt(request.CorrectOptionIndex).Id;
+        UpdateLegacyCorrectOptionId(question);
         await _dbContext.SaveChangesAsync();
 
         var created = await LoadQuestionAsync(question.Id);
@@ -107,10 +103,7 @@ public class QuestionsController : ControllerBase
     {
         ValidateQuestion(request);
 
-        var question = await _dbContext.Questions
-            .Include(x => x.Options)
-            .FirstOrDefaultAsync(x => x.Id == id);
-
+        var question = await LoadQuestionForUpdateAsync(id);
         if (question is null)
         {
             return NotFound(new { message = "Question was not found." });
@@ -124,37 +117,17 @@ public class QuestionsController : ControllerBase
         question.Content = request.Content.Trim();
         question.TopicId = request.TopicId;
         question.Difficulty = request.Difficulty;
+        question.QuestionType = request.QuestionType;
         question.Explanation = request.Explanation.Trim();
+        question.CodeSnippet = NormalizeNullable(request.CodeSnippet);
         question.UpdatedAt = DateTime.UtcNow;
 
-        var existingOptions = question.Options.OrderBy(x => x.Label).ToList();
-        if (existingOptions.Count == 4)
-        {
-            for (var index = 0; index < existingOptions.Count; index++)
-            {
-                existingOptions[index].Label = NormalizeLabel(request.Options[index].Label, index);
-                existingOptions[index].Text = request.Options[index].Text.Trim();
-            }
-
-            question.CorrectOptionId = existingOptions[request.CorrectOptionIndex].Id;
-        }
-        else
-        {
-            _dbContext.AnswerOptions.RemoveRange(question.Options);
-            question.CorrectOptionId = 0;
-            await _dbContext.SaveChangesAsync();
-
-            question.Options = request.Options.Select((option, index) => new AnswerOption
-            {
-                QuestionId = question.Id,
-                Label = NormalizeLabel(option.Label, index),
-                Text = option.Text.Trim()
-            }).ToList();
-            await _dbContext.SaveChangesAsync();
-            question.CorrectOptionId = question.Options.OrderBy(x => x.Label).ElementAt(request.CorrectOptionIndex).Id;
-        }
-
+        ReplaceQuestionChildren(question, request);
         await _dbContext.SaveChangesAsync();
+
+        UpdateLegacyCorrectOptionId(question);
+        await _dbContext.SaveChangesAsync();
+
         var updated = await LoadQuestionAsync(question.Id);
         return Ok(ToDto(updated!));
     }
@@ -180,13 +153,141 @@ public class QuestionsController : ControllerBase
         return NoContent();
     }
 
-    private async Task<Question?> LoadQuestionAsync(int id)
+    private IQueryable<Question> BuildQuestionQuery()
     {
-        return await _dbContext.Questions
+        return _dbContext.Questions
             .AsNoTracking()
             .Include(x => x.Topic)
             .Include(x => x.Options)
+            .Include(x => x.CorrectTextAnswers)
+            .Include(x => x.MatchingPairs)
+            .Include(x => x.OrderingItems)
+            .AsQueryable();
+    }
+
+    private async Task<Question?> LoadQuestionAsync(int id)
+    {
+        return await BuildQuestionQuery().FirstOrDefaultAsync(x => x.Id == id);
+    }
+
+    private async Task<Question?> LoadQuestionForUpdateAsync(int id)
+    {
+        return await _dbContext.Questions
+            .Include(x => x.Options)
+            .Include(x => x.CorrectTextAnswers)
+            .Include(x => x.MatchingPairs)
+            .Include(x => x.OrderingItems)
             .FirstOrDefaultAsync(x => x.Id == id);
+    }
+
+    private void ReplaceQuestionChildren(Question question, QuestionUpsertRequest request)
+    {
+        _dbContext.AnswerOptions.RemoveRange(question.Options);
+        _dbContext.CorrectTextAnswers.RemoveRange(question.CorrectTextAnswers);
+        _dbContext.MatchingPairs.RemoveRange(question.MatchingPairs);
+        _dbContext.OrderingItems.RemoveRange(question.OrderingItems);
+
+        question.Options = new List<AnswerOption>();
+        question.CorrectTextAnswers = new List<CorrectTextAnswer>();
+        question.MatchingPairs = new List<MatchingPair>();
+        question.OrderingItems = new List<OrderingItem>();
+        question.CorrectOptionId = 0;
+
+        ApplyQuestionChildren(question, request);
+    }
+
+    private static void ApplyQuestionChildren(Question question, QuestionUpsertRequest request)
+    {
+        question.Options = BuildAnswerOptions(request).ToList();
+        question.CorrectTextAnswers = request.CorrectTextAnswers
+            .Select(answer => new CorrectTextAnswer
+            {
+                CorrectText = answer.CorrectText.Trim(),
+                IsCaseSensitive = answer.IsCaseSensitive
+            })
+            .ToList();
+        question.MatchingPairs = request.MatchingPairs
+            .Select((pair, index) => new MatchingPair
+            {
+                LeftItem = pair.LeftItem.Trim(),
+                RightItem = pair.RightItem.Trim(),
+                PairOrder = pair.PairOrder ?? index
+            })
+            .ToList();
+        question.OrderingItems = request.OrderingItems
+            .Select((item, index) => new OrderingItem
+            {
+                Content = item.Content.Trim(),
+                CorrectOrder = item.CorrectOrder ?? index
+            })
+            .ToList();
+    }
+
+    private static IReadOnlyList<AnswerOption> BuildAnswerOptions(QuestionUpsertRequest request)
+    {
+        var inputs = GetOptionInputs(request);
+        if (inputs.Count == 0)
+        {
+            return [];
+        }
+
+        var correctIndexes = GetCorrectOptionIndexes(request, inputs);
+        return inputs
+            .Select((option, index) => new AnswerOption
+            {
+                Label = NormalizeLabel(option.Label, index),
+                Text = option.Text.Trim(),
+                IsCorrect = correctIndexes.Contains(index),
+                OptionOrder = option.OptionOrder ?? index
+            })
+            .ToList();
+    }
+
+    private static IReadOnlyList<AnswerOptionInput> GetOptionInputs(QuestionUpsertRequest request)
+    {
+        if (request.QuestionType == QuestionType.TrueFalse && request.Options.Count == 0)
+        {
+            return
+            [
+                new AnswerOptionInput { Label = "A", Text = "True" },
+                new AnswerOptionInput { Label = "B", Text = "False" }
+            ];
+        }
+
+        return request.Options;
+    }
+
+    private static HashSet<int> GetCorrectOptionIndexes(
+        QuestionUpsertRequest request,
+        IReadOnlyList<AnswerOptionInput> options)
+    {
+        var correctIndexes = request.CorrectOptionIndexes
+            .Where(index => index >= 0 && index < options.Count)
+            .ToHashSet();
+
+        foreach (var option in options.Select((value, index) => new { value, index }).Where(x => x.value.IsCorrect))
+        {
+            correctIndexes.Add(option.index);
+        }
+
+        if (correctIndexes.Count == 0 &&
+            request.QuestionType is QuestionType.SingleChoice or QuestionType.TrueFalse or QuestionType.CodeOutput or QuestionType.BigOAnalysis &&
+            request.CorrectOptionIndex >= 0 &&
+            request.CorrectOptionIndex < options.Count)
+        {
+            correctIndexes.Add(request.CorrectOptionIndex);
+        }
+
+        return correctIndexes;
+    }
+
+    private static void UpdateLegacyCorrectOptionId(Question question)
+    {
+        question.CorrectOptionId = question.Options
+            .OrderBy(x => x.OptionOrder)
+            .ThenBy(x => x.Label)
+            .FirstOrDefault(x => x.IsCorrect)
+            ?.Id ?? 0;
     }
 
     private static void ValidateQuestion(QuestionUpsertRequest request)
@@ -201,14 +302,112 @@ public class QuestionsController : ControllerBase
             throw new ArgumentException("Question explanation is required.");
         }
 
-        if (request.Options.Count != 4 || request.Options.Any(x => string.IsNullOrWhiteSpace(x.Text)))
+        if (!Enum.IsDefined(request.QuestionType))
         {
-            throw new ArgumentException("Each question must have exactly 4 answer options.");
+            throw new ArgumentException("Question type is invalid.");
         }
 
-        if (request.CorrectOptionIndex < 0 || request.CorrectOptionIndex > 3)
+        switch (request.QuestionType)
         {
-            throw new ArgumentException("Correct option index must be between 0 and 3.");
+            case QuestionType.SingleChoice:
+                ValidateChoiceQuestion(request, exactOptionCount: 4, requireExactlyOneCorrect: true);
+                break;
+            case QuestionType.MultipleChoice:
+                ValidateChoiceQuestion(request, minOptionCount: 2, requireAtLeastOneCorrect: true);
+                break;
+            case QuestionType.TrueFalse:
+                if (request.Options.Count is not 0 and not 2)
+                {
+                    throw new ArgumentException("True/False questions must have exactly 2 answer options, or no options to use defaults.");
+                }
+
+                ValidateChoiceQuestion(request, exactOptionCount: 2, requireExactlyOneCorrect: true, allowDefaultTrueFalseOptions: true);
+                break;
+            case QuestionType.FillInBlank:
+                ValidateTextAnswers(request);
+                break;
+            case QuestionType.Matching:
+                if (request.MatchingPairs.Count < 2 || request.MatchingPairs.Any(x => string.IsNullOrWhiteSpace(x.LeftItem) || string.IsNullOrWhiteSpace(x.RightItem)))
+                {
+                    throw new ArgumentException("Matching questions must have at least 2 complete pairs.");
+                }
+
+                break;
+            case QuestionType.Ordering:
+                if (request.OrderingItems.Count < 2 || request.OrderingItems.Any(x => string.IsNullOrWhiteSpace(x.Content)))
+                {
+                    throw new ArgumentException("Ordering questions must have at least 2 complete items.");
+                }
+
+                break;
+            case QuestionType.CodeOutput:
+                if (string.IsNullOrWhiteSpace(request.CodeSnippet))
+                {
+                    throw new ArgumentException("Code output questions require a code snippet.");
+                }
+
+                ValidateChoiceOrTextAnswerQuestion(request);
+                break;
+            case QuestionType.BigOAnalysis:
+                ValidateChoiceOrTextAnswerQuestion(request);
+                break;
+            default:
+                throw new ArgumentException("Question type is invalid.");
+        }
+    }
+
+    private static void ValidateChoiceOrTextAnswerQuestion(QuestionUpsertRequest request)
+    {
+        if (request.Options.Count > 0)
+        {
+            ValidateChoiceQuestion(request, minOptionCount: 2, requireAtLeastOneCorrect: true);
+            return;
+        }
+
+        ValidateTextAnswers(request);
+    }
+
+    private static void ValidateTextAnswers(QuestionUpsertRequest request)
+    {
+        if (request.CorrectTextAnswers.Count == 0 || request.CorrectTextAnswers.Any(x => string.IsNullOrWhiteSpace(x.CorrectText)))
+        {
+            throw new ArgumentException("At least one correct text answer is required.");
+        }
+    }
+
+    private static void ValidateChoiceQuestion(
+        QuestionUpsertRequest request,
+        int? exactOptionCount = null,
+        int? minOptionCount = null,
+        bool requireExactlyOneCorrect = false,
+        bool requireAtLeastOneCorrect = false,
+        bool allowDefaultTrueFalseOptions = false)
+    {
+        var options = allowDefaultTrueFalseOptions ? GetOptionInputs(request) : request.Options;
+        if (exactOptionCount.HasValue && options.Count != exactOptionCount.Value)
+        {
+            throw new ArgumentException($"Question must have exactly {exactOptionCount.Value} answer options.");
+        }
+
+        if (minOptionCount.HasValue && options.Count < minOptionCount.Value)
+        {
+            throw new ArgumentException($"Question must have at least {minOptionCount.Value} answer options.");
+        }
+
+        if (options.Any(x => string.IsNullOrWhiteSpace(x.Text)))
+        {
+            throw new ArgumentException("Answer option text is required.");
+        }
+
+        var correctIndexes = GetCorrectOptionIndexes(request, options);
+        if (requireExactlyOneCorrect && correctIndexes.Count != 1)
+        {
+            throw new ArgumentException("Question must have exactly one correct answer option.");
+        }
+
+        if (requireAtLeastOneCorrect && correctIndexes.Count == 0)
+        {
+            throw new ArgumentException("Question must have at least one correct answer option.");
         }
     }
 
@@ -216,6 +415,11 @@ public class QuestionsController : ControllerBase
     {
         var fallback = ((char)('A' + index)).ToString();
         return string.IsNullOrWhiteSpace(label) ? fallback : label.Trim().ToUpperInvariant()[..1];
+    }
+
+    private static string? NormalizeNullable(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     }
 
     private static QuestionDto ToDto(Question question)
@@ -226,13 +430,28 @@ public class QuestionsController : ControllerBase
             question.TopicId,
             question.Topic?.Name ?? string.Empty,
             question.Difficulty,
+            question.QuestionType,
             question.Explanation,
+            question.CodeSnippet,
             question.CorrectOptionId,
             question.CreatedAt,
             question.UpdatedAt,
             question.Options
-                .OrderBy(x => x.Label)
-                .Select(x => new AnswerOptionDto(x.Id, x.Label, x.Text))
+                .OrderBy(x => x.OptionOrder)
+                .ThenBy(x => x.Label)
+                .Select(x => new QuestionAnswerOptionDto(x.Id, x.Label, x.Text, x.IsCorrect, x.OptionOrder))
+                .ToList(),
+            question.CorrectTextAnswers
+                .OrderBy(x => x.Id)
+                .Select(x => new CorrectTextAnswerDto(x.Id, x.CorrectText, x.IsCaseSensitive))
+                .ToList(),
+            question.MatchingPairs
+                .OrderBy(x => x.PairOrder)
+                .Select(x => new MatchingPairDto(x.Id, x.LeftItem, x.RightItem, x.PairOrder))
+                .ToList(),
+            question.OrderingItems
+                .OrderBy(x => x.CorrectOrder)
+                .Select(x => new OrderingItemDto(x.Id, x.Content, x.CorrectOrder))
                 .ToList());
     }
 }

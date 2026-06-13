@@ -1,12 +1,11 @@
-import { CheckCircle2, XCircle } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link, useLocation, useParams } from 'react-router-dom'
 import api, { getErrorMessage } from '../../api/client.js'
 import LoadingState from '../../components/LoadingState.jsx'
 import PageHeader from '../../components/PageHeader.jsx'
+import AttemptAnswerReview from '../../components/quiz/AttemptAnswerReview.jsx'
 import ResultSummary from '../../components/quiz/ResultSummary.jsx'
 import Alert from '../../components/ui/Alert.jsx'
-import Badge from '../../components/ui/Badge.jsx'
 import Card from '../../components/ui/Card.jsx'
 import { useI18n } from '../../i18n/I18nContext.jsx'
 import { formatDate } from '../../utils/format.js'
@@ -56,22 +55,7 @@ export default function QuizResultPage() {
 
       <div className="vstack gap-3">
         {result.answers.map((answer, index) => (
-          <Card className="p-4" key={answer.questionId}>
-            <div className="d-flex gap-3 align-items-start">
-              <div className={`icon-box ${answer.isCorrect ? 'bg-success-subtle text-success' : 'bg-danger-subtle text-danger'} flex-shrink-0`}>
-                {answer.isCorrect ? <CheckCircle2 size={22} /> : <XCircle size={22} />}
-              </div>
-              <div className="flex-grow-1">
-                <div className="d-flex flex-wrap justify-content-between gap-2 mb-2">
-                  <h2 className="h5 fw-bold mb-0">{t('questionNumber', { number: index + 1 })} {answer.questionContent}</h2>
-                  <Badge variant={answer.isCorrect ? 'success' : 'danger'}>{answer.isCorrect ? t('correct') : t('wrong')}</Badge>
-                </div>
-                <p className="mb-1"><strong>{t('yourAnswer')}:</strong> {answer.selectedOptionText || t('notAnswered')}</p>
-                <p className="mb-1"><strong>{t('correctAnswer')}:</strong> {answer.correctOptionText}</p>
-                <p className="text-muted mb-0">{answer.explanation}</p>
-              </div>
-            </div>
-          </Card>
+          <AttemptAnswerReview answer={answer} key={answer.questionId} number={index + 1} />
         ))}
       </div>
     </>

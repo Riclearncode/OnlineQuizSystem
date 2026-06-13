@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using System.Text.Json;
 using OnlineQuiz.Application.DTOs;
 using OnlineQuiz.Application.Services;
 using OnlineQuiz.Domain.Entities;
@@ -9,11 +10,18 @@ namespace OnlineQuiz.Infrastructure.Services;
 
 public class QuizAttemptService : IQuizAttemptService
 {
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private readonly ApplicationDbContext _dbContext;
+    private readonly IQuizGradingService _quizGradingService;
 
-    public QuizAttemptService(ApplicationDbContext dbContext)
+    public QuizAttemptService(ApplicationDbContext dbContext) : this(dbContext, new QuizGradingService())
+    {
+    }
+
+    public QuizAttemptService(ApplicationDbContext dbContext, IQuizGradingService quizGradingService)
     {
         _dbContext = dbContext;
+        _quizGradingService = quizGradingService;
     }
 
     public async Task<StartQuizResponse> StartQuizAsync(string userId, StartQuizRequest request)
@@ -25,6 +33,12 @@ public class QuizAttemptService : IQuizAttemptService
             .Include(x => x.QuizQuestions)
                 .ThenInclude(x => x.Question)
                     .ThenInclude(x => x!.Options)
+            .Include(x => x.QuizQuestions)
+                .ThenInclude(x => x.Question)
+                    .ThenInclude(x => x!.MatchingPairs)
+            .Include(x => x.QuizQuestions)
+                .ThenInclude(x => x.Question)
+                    .ThenInclude(x => x!.OrderingItems)
             .FirstOrDefaultAsync(x => x.Id == request.QuizId && x.IsActive);
 
         if (quiz is null)
@@ -71,6 +85,18 @@ public class QuizAttemptService : IQuizAttemptService
                 .ThenInclude(x => x!.QuizQuestions)
                     .ThenInclude(x => x.Question)
                         .ThenInclude(x => x!.Options)
+            .Include(x => x.Quiz)
+                .ThenInclude(x => x!.QuizQuestions)
+                    .ThenInclude(x => x.Question)
+                        .ThenInclude(x => x!.CorrectTextAnswers)
+            .Include(x => x.Quiz)
+                .ThenInclude(x => x!.QuizQuestions)
+                    .ThenInclude(x => x.Question)
+                        .ThenInclude(x => x!.MatchingPairs)
+            .Include(x => x.Quiz)
+                .ThenInclude(x => x!.QuizQuestions)
+                    .ThenInclude(x => x.Question)
+                        .ThenInclude(x => x!.OrderingItems)
             .FirstOrDefaultAsync(x => x.Id == request.AttemptId);
 
         if (attempt is null)
@@ -90,7 +116,7 @@ public class QuizAttemptService : IQuizAttemptService
 
         var answerMap = request.Answers
             .GroupBy(x => x.QuestionId)
-            .ToDictionary(x => x.Key, x => x.Last().SelectedOptionId);
+            .ToDictionary(x => x.Key, x => x.Last());
 
         var questions = attempt.Quiz!.QuizQuestions
             .Select(x => x.Question!)
@@ -100,20 +126,10 @@ public class QuizAttemptService : IQuizAttemptService
         var answers = new List<AttemptAnswer>();
         foreach (var question in questions)
         {
-            answerMap.TryGetValue(question.Id, out var selectedOptionId);
-            var isValidOption = selectedOptionId is null || question.Options.Any(x => x.Id == selectedOptionId.Value);
-            if (!isValidOption)
-            {
-                throw new InvalidOperationException($"Selected option is invalid for question {question.Id}.");
-            }
-
-            answers.Add(new AttemptAnswer
-            {
-                QuizAttemptId = attempt.Id,
-                QuestionId = question.Id,
-                SelectedOptionId = selectedOptionId,
-                IsCorrect = selectedOptionId == question.CorrectOptionId
-            });
+            answerMap.TryGetValue(question.Id, out var submittedAnswer);
+            var gradedAnswer = _quizGradingService.Grade(question, submittedAnswer);
+            gradedAnswer.QuizAttemptId = attempt.Id;
+            answers.Add(gradedAnswer);
         }
 
         _dbContext.AttemptAnswers.AddRange(answers);
@@ -164,6 +180,15 @@ public class QuizAttemptService : IQuizAttemptService
                 .ThenInclude(x => x.Question)
                     .ThenInclude(x => x!.Options)
             .Include(x => x.Answers)
+                .ThenInclude(x => x.Question)
+                    .ThenInclude(x => x!.CorrectTextAnswers)
+            .Include(x => x.Answers)
+                .ThenInclude(x => x.Question)
+                    .ThenInclude(x => x!.MatchingPairs)
+            .Include(x => x.Answers)
+                .ThenInclude(x => x.Question)
+                    .ThenInclude(x => x!.OrderingItems)
+            .Include(x => x.Answers)
                 .ThenInclude(x => x.SelectedOption)
             .FirstOrDefaultAsync(x => x.Id == attemptId);
 
@@ -186,9 +211,25 @@ public class QuizAttemptService : IQuizAttemptService
             question.Id,
             question.Content,
             question.Topic?.Name ?? string.Empty,
+            question.Difficulty,
+            question.QuestionType,
+            question.CodeSnippet,
             question.Options
-                .OrderBy(x => x.Label)
+                .OrderBy(x => x.OptionOrder)
+                .ThenBy(x => x.Label)
                 .Select(x => new AnswerOptionDto(x.Id, x.Label, x.Text))
+                .ToList(),
+            question.MatchingPairs
+                .OrderBy(x => x.PairOrder)
+                .Select(x => x.LeftItem)
+                .ToList(),
+            question.MatchingPairs
+                .OrderBy(_ => Guid.NewGuid())
+                .Select(x => x.RightItem)
+                .ToList(),
+            question.OrderingItems
+                .OrderBy(_ => Guid.NewGuid())
+                .Select(x => x.Content)
                 .ToList());
     }
 
@@ -215,15 +256,55 @@ public class QuizAttemptService : IQuizAttemptService
             .Select(answer =>
             {
                 var question = answer.Question!;
-                var correctOption = question.Options.First(x => x.Id == question.CorrectOptionId);
+                var correctOption = question.Options.FirstOrDefault(x => x.Id == question.CorrectOptionId);
+                var selectedOptionIds = DeserializeSelectedOptionIds(answer.SelectedOptionIdsJson).ToList();
+                if (selectedOptionIds.Count == 0 && answer.SelectedOptionId.HasValue)
+                {
+                    selectedOptionIds.Add(answer.SelectedOptionId.Value);
+                }
+
+                var selectedOptionIdSet = selectedOptionIds.ToHashSet();
                 return new AttemptAnswerResultDto(
                     question.Id,
                     question.Content,
+                    question.Difficulty,
+                    question.QuestionType,
+                    question.CodeSnippet,
                     answer.SelectedOptionId,
                     answer.SelectedOption?.Text,
-                    correctOption.Id,
-                    correctOption.Text,
+                    selectedOptionIds,
+                    question.Options
+                        .Where(x => selectedOptionIdSet.Contains(x.Id))
+                        .OrderBy(x => x.OptionOrder)
+                        .ThenBy(x => x.Label)
+                        .Select(x => new AnswerOptionDto(x.Id, x.Label, x.Text))
+                        .ToList(),
+                    answer.TextAnswer,
+                    answer.MatchingAnswerJson,
+                    answer.OrderingAnswerJson,
+                    correctOption?.Id ?? 0,
+                    correctOption?.Text ?? string.Empty,
+                    question.Options
+                        .Where(x => x.IsCorrect)
+                        .OrderBy(x => x.OptionOrder)
+                        .ThenBy(x => x.Label)
+                        .Select(x => new AnswerOptionDto(x.Id, x.Label, x.Text))
+                        .ToList(),
+                    question.CorrectTextAnswers
+                        .OrderBy(x => x.Id)
+                        .Select(x => x.CorrectText)
+                        .ToList(),
+                    question.MatchingPairs
+                        .OrderBy(x => x.PairOrder)
+                        .Select(x => new MatchingPairDto(x.Id, x.LeftItem, x.RightItem, x.PairOrder))
+                        .ToList(),
+                    question.OrderingItems
+                        .OrderBy(x => x.CorrectOrder)
+                        .Select(x => new OrderingItemDto(x.Id, x.Content, x.CorrectOrder))
+                        .ToList(),
                     answer.IsCorrect,
+                    answer.Score,
+                    answer.MaxScore,
                     question.Explanation);
             })
             .ToList();
@@ -241,5 +322,22 @@ public class QuizAttemptService : IQuizAttemptService
             attempt.Score,
             attempt.TimeSpentSeconds,
             answers);
+    }
+
+    private static IReadOnlyList<int> DeserializeSelectedOptionIds(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return [];
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<IReadOnlyList<int>>(value, JsonOptions) ?? [];
+        }
+        catch (JsonException)
+        {
+            return [];
+        }
     }
 }

@@ -32,6 +32,7 @@ export default function TakeQuizPage() {
     api.post('/quiz-attempts/start', { quizId: Number(quizId) })
       .then((response) => {
         setQuiz(response.data)
+        setAnswers(createInitialAnswers(response.data.questions))
         setSecondsLeft(response.data.timeLimitMinutes * 60)
       })
       .catch((err) => setError(getErrorMessage(err)))
@@ -44,8 +45,8 @@ export default function TakeQuizPage() {
     return () => window.clearInterval(timer)
   }, [secondsLeft, submitting])
 
-  function selectAnswer(questionId, optionId) {
-    setAnswers((current) => ({ ...current, [questionId]: optionId }))
+  function updateAnswer(questionId, answer) {
+    setAnswers((current) => ({ ...current, [questionId]: answer }))
   }
 
   async function submitQuiz() {
@@ -57,10 +58,7 @@ export default function TakeQuizPage() {
     try {
       const payload = {
         attemptId: quiz.attemptId,
-        answers: quiz.questions.map((question) => ({
-          questionId: question.id,
-          selectedOptionId: answers[question.id] ?? null,
-        })),
+        answers: quiz.questions.map((question) => buildSubmitAnswer(question, answers[question.id])),
       }
       const { data } = await api.post('/quiz-attempts/submit', payload)
       navigate(`/student/results/${data.id}`, { state: { result: data } })
@@ -77,7 +75,7 @@ export default function TakeQuizPage() {
   }
 
   const question = quiz.questions[currentIndex]
-  const answeredCount = Object.keys(answers).length
+  const answeredCount = quiz.questions.filter((item) => isQuestionAnswered(item, answers[item.id])).length
   const canGoPrevious = currentIndex > 0
   const canGoNext = currentIndex < quiz.questions.length - 1
 
@@ -98,10 +96,10 @@ export default function TakeQuizPage() {
             index={currentIndex}
             onNext={() => setCurrentIndex((value) => Math.min(value + 1, quiz.questions.length - 1))}
             onPrevious={() => setCurrentIndex((value) => Math.max(value - 1, 0))}
-            onSelect={selectAnswer}
+            answer={answers[question.id]}
+            onAnswerChange={updateAnswer}
             onSubmit={() => setConfirmOpen(true)}
             question={question}
-            selectedOptionId={answers[question.id]}
             submitting={submitting}
             total={quiz.questions.length}
           />
@@ -113,7 +111,7 @@ export default function TakeQuizPage() {
               {quiz.questions.map((item, index) => (
                 <div className="col-3" key={item.id}>
                   <button
-                    className={`btn btn-sm w-100 ${index === currentIndex ? 'btn-primary' : answers[item.id] ? 'btn-outline-success' : 'btn-outline-secondary'}`}
+                    className={`btn btn-sm w-100 ${index === currentIndex ? 'btn-primary' : isQuestionAnswered(item, answers[item.id]) ? 'btn-outline-success' : 'btn-outline-secondary'}`}
                     onClick={() => setCurrentIndex(index)}
                     type="button"
                   >
@@ -137,4 +135,79 @@ export default function TakeQuizPage() {
       />
     </>
   )
+}
+
+function createInitialAnswers(questions) {
+  return questions.reduce((current, question) => {
+    if (question.questionType === 'Ordering' && question.orderingItems?.length > 0) {
+      current[question.id] = { orderingAnswer: [...question.orderingItems] }
+    }
+
+    return current
+  }, {})
+}
+
+function buildSubmitAnswer(question, answer = {}) {
+  const submitAnswer = {
+    questionId: question.id,
+    selectedOptionId: answer.selectedOptionId ?? null,
+    selectedOptionIds: answer.selectedOptionIds ?? [],
+    textAnswer: answer.textAnswer ?? null,
+    matchingAnswer: answer.matchingAnswer ?? {},
+    orderingAnswer: answer.orderingAnswer ?? [],
+  }
+
+  if (question.questionType === 'SingleChoice' || question.questionType === 'TrueFalse') {
+    submitAnswer.selectedOptionIds = submitAnswer.selectedOptionId ? [submitAnswer.selectedOptionId] : []
+  }
+
+  if (question.questionType === 'MultipleChoice') {
+    submitAnswer.selectedOptionId = submitAnswer.selectedOptionIds.length === 1 ? submitAnswer.selectedOptionIds[0] : null
+  }
+
+  if ((question.questionType === 'CodeOutput' || question.questionType === 'BigOAnalysis') && question.options?.length > 0) {
+    submitAnswer.selectedOptionIds = submitAnswer.selectedOptionId ? [submitAnswer.selectedOptionId] : []
+    submitAnswer.textAnswer = null
+  }
+
+  if ((question.questionType === 'CodeOutput' || question.questionType === 'BigOAnalysis') && (!question.options || question.options.length === 0)) {
+    submitAnswer.selectedOptionId = null
+    submitAnswer.selectedOptionIds = []
+  }
+
+  return submitAnswer
+}
+
+function isQuestionAnswered(question, answer) {
+  if (!answer) return false
+
+  if (question.questionType === 'SingleChoice' || question.questionType === 'TrueFalse') {
+    return Boolean(answer.selectedOptionId)
+  }
+
+  if (question.questionType === 'MultipleChoice') {
+    return answer.selectedOptionIds?.length > 0
+  }
+
+  if (question.questionType === 'FillInBlank') {
+    return Boolean(answer.textAnswer?.trim())
+  }
+
+  if (question.questionType === 'Matching') {
+    const leftItems = question.matchingLeftItems ?? []
+    return leftItems.length > 0 &&
+      leftItems.every((item) => Boolean(answer.matchingAnswer?.[item]))
+  }
+
+  if (question.questionType === 'Ordering') {
+    return answer.orderingAnswer?.length === question.orderingItems?.length
+  }
+
+  if (question.questionType === 'CodeOutput' || question.questionType === 'BigOAnalysis') {
+    return question.options?.length > 0
+      ? Boolean(answer.selectedOptionId)
+      : Boolean(answer.textAnswer?.trim())
+  }
+
+  return false
 }

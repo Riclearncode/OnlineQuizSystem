@@ -1,4 +1,4 @@
-export default function AnswerOption({ checked, name, onChange, option }) {
+export default function AnswerOption({ checked, name, onChange, option, type = 'radio' }) {
   return (
     <label className={`quiz-option p-3 d-flex gap-3 align-items-start ${checked ? 'selected' : ''}`}>
       <input
@@ -6,7 +6,7 @@ export default function AnswerOption({ checked, name, onChange, option }) {
         className="form-check-input mt-1"
         name={name}
         onChange={onChange}
-        type="radio"
+        type={type}
       />
       <div>
         <div className="fw-bold">{option.label}</div>

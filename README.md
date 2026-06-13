@@ -1,126 +1,226 @@
 # Online Quiz System for Data Structures and Algorithms
 
-A full-stack web application for practicing and managing Data Structures and Algorithms quizzes. The project includes JWT authentication, Admin/Student role authorization, CRUD management, automatic quiz grading, attempt history, and admin statistics.
+Online Quiz System is a full-stack web application for creating, managing, taking, and grading Data Structures and Algorithms quizzes. It is built as a portfolio-ready project with a clean ASP.NET Core Web API backend, SQL Server persistence, JWT authentication, role-based authorization, and a responsive React frontend.
 
-## Features
+The project focuses on a practical academic use case: helping students practice DSA concepts through structured quizzes while giving administrators tools to manage question banks, quizzes, attempts, and statistics.
 
-- Student registration, login, JWT authentication, and role-based access control.
-- Admin management for topics, questions, and quizzes.
-- Student quiz-taking flow with hidden correct answers until submission.
-- Automatic grading with score, correct/wrong count, explanations, and attempt details.
-- Student attempt history.
-- Admin dashboard with totals, top students, questions by topic, and attempts by quiz.
-- English/Vietnamese language switcher for the frontend UI.
-- Swagger/OpenAPI documentation for backend endpoints.
-- Responsive React + Bootstrap frontend.
+## Highlights
+
+- ASP.NET Core Web API with a layered backend structure.
+- ASP.NET Core Identity for user and role management.
+- JWT authentication with Admin and Student authorization.
+- SQL Server database managed with Entity Framework Core migrations.
+- React + Vite frontend with Axios, React Router, Bootstrap, and bilingual UI support.
+- Admin question bank supporting multiple DSA question formats.
+- Student quiz-taking flow with hidden answers until submission.
+- Automatic grading and detailed result review.
+- Attempt history for students and attempt analytics for admins.
+- Import support for standard single-choice quiz files.
+- Focused xUnit tests for quiz grading behavior.
+
+## Main Features
+
+### Admin
+
+- Manage DSA topics.
+- Create, update, view, filter, and delete questions.
+- Create quizzes from selected topics and difficulty levels.
+- Import quizzes from Excel, PDF, text files, or pasted form text.
+- View dashboard statistics.
+- Review submitted quiz attempts with per-question details.
+
+### Student
+
+- Register and log in.
+- View active quizzes.
+- Take timed quizzes.
+- Submit answers and receive automatic grading.
+- Review score, correct answers, explanations, and attempt history.
+
+## Supported Question Types
+
+The question bank supports eight question types:
+
+| Type | Student input | Typical use case |
+| --- | --- | --- |
+| `SingleChoice` | Radio option | Basic concept checks |
+| `MultipleChoice` | Checkbox options | Questions with several correct statements |
+| `TrueFalse` | True/False radio option | Fast factual checks |
+| `FillInBlank` | Text answer | Terms, notation, short outputs |
+| `Matching` | Pair selection | Match structures, definitions, or properties |
+| `Ordering` | Ordered item list | Algorithm step ordering |
+| `CodeOutput` | Choice or text answer | Predicting output from code/pseudocode |
+| `BigOAnalysis` | Choice or text answer | Algorithm complexity analysis |
+
+Detailed notes are available in [docs/question-types.md](docs/question-types.md).
 
 ## Tech Stack
 
-- Backend: ASP.NET Core Web API, .NET 10
-- Database: SQL Server
-- ORM: Entity Framework Core
-- Auth: ASP.NET Core Identity, JWT Bearer
-- Frontend: React, Vite, Axios, React Router, Bootstrap, Tailwind CSS utilities
-- Tests: xUnit, EF Core InMemory
+| Area | Technology |
+| --- | --- |
+| Backend | ASP.NET Core Web API, .NET 10 |
+| Application data | SQL Server |
+| ORM | Entity Framework Core |
+| Authentication | ASP.NET Core Identity, JWT Bearer |
+| Frontend | React, Vite, Axios, React Router |
+| UI | Bootstrap, Tailwind CSS utilities |
+| Tests | xUnit, EF Core InMemory |
+| Documentation | Swagger/OpenAPI, Markdown docs |
 
-## Screenshots
+## Architecture
 
-Add screenshots to `docs/screenshots` after running the app locally.
+```text
+OnlineQuizSystem/
+|-- backend/
+|   |-- OnlineQuiz.Api/             # Controllers, middleware, API startup
+|   |-- OnlineQuiz.Application/     # DTOs, service contracts
+|   |-- OnlineQuiz.Domain/          # Entities, enums, role constants
+|   |-- OnlineQuiz.Infrastructure/  # EF Core, Identity, services, seed data
+|   `-- OnlineQuiz.Tests/           # xUnit tests
+|-- frontend/
+|   `-- online-quiz-client/         # React + Vite client
+|-- database/
+|   `-- scripts/
+|-- docs/
+|   |-- api-notes.md
+|   |-- manual-test-checklist.md
+|   |-- question-types.md
+|   `-- screenshots/
+`-- README.md
+```
 
-## Database Design Summary
+## Database Overview
 
-Core entities:
+Core tables/entities:
 
-- `ApplicationUser` and Identity roles: Admin, Student
+- `ApplicationUser` and Identity role tables
 - `Topic`
 - `Question`
 - `AnswerOption`
+- `CorrectTextAnswer`
+- `MatchingPair`
+- `OrderingItem`
 - `Quiz`
 - `QuizQuestion`
 - `QuizAttempt`
 - `AttemptAnswer`
 
-The database is created by EF Core migrations. Runtime seed data creates:
+The migration that adds advanced question types is:
 
-- Admin: `admin@quiz.com` / `Admin@123`
-- Student: `student@quiz.com` / `Student@123`
-- 10 DSA topics
-- 40 English sample DSA questions, each with 4 options and explanation
-- 20 Vietnamese sample DSA questions, each with 4 options and explanation
-- 3 English active sample quizzes
-- 3 Vietnamese active sample quizzes
+```text
+20260613072348_AddQuestionTypes
+```
 
-## How to Run Backend
+## Seed Data
 
-Requirements:
+When the API starts, the database seeder creates local development data:
+
+| Data | Description |
+| --- | --- |
+| Roles | `Admin`, `Student` |
+| Admin account | `admin@quiz.com` / `Admin@123` |
+| Student account | `student@quiz.com` / `Student@123` |
+| Topics | 10 DSA topics |
+| English questions | 40 single-choice DSA questions |
+| Vietnamese questions | 20 single-choice DSA questions |
+| Advanced questions | 32 questions across all supported question types |
+| Sample quizzes | English, Vietnamese, and mixed-type quizzes |
+
+The seeded credentials are intended for local demo and development only.
+
+## Getting Started
+
+### Prerequisites
 
 - .NET SDK 10
-- SQL Server instance, default local setting: `.\NQTHAI`
-- `dotnet-ef` tool
+- SQL Server, default instance used by the project: `.\NQTHAI`
+- Node.js 20+ or 21+
+- npm
+- Optional: `dotnet-ef` CLI tool
 
-Commands:
+Install `dotnet-ef` if needed:
 
-```bash
-cd backend
+```powershell
+dotnet tool install --global dotnet-ef
+```
+
+### Backend
+
+```powershell
+cd D:\file_hoc_tap\project\OnlineQuizSystem\backend
 dotnet restore
 dotnet ef database update --project OnlineQuiz.Infrastructure --startup-project OnlineQuiz.Api
 dotnet run --project OnlineQuiz.Api --launch-profile http
 ```
 
-Backend URL:
+Backend URLs:
 
-- API: `http://localhost:5043/api`
-- Swagger: `http://localhost:5043/swagger`
+```text
+API:     http://localhost:5043/api
+Swagger: http://localhost:5043/swagger
+```
 
-Development CORS allows local Vite origins on `localhost`, `127.0.0.1`, and `::1` from ports `5173` through `5179`.
+### Frontend
 
-To change database settings, copy `backend/OnlineQuiz.Api/appsettings.example.json` values into your local `appsettings.Development.json`.
-
-## How to Run Frontend
-
-Requirements:
-
-- Node.js 20+ or 21+
-- npm
-
-Commands:
-
-```bash
-cd frontend/online-quiz-client
+```powershell
+cd D:\file_hoc_tap\project\OnlineQuizSystem\frontend\online-quiz-client
 npm install
 npm run dev
 ```
 
-Frontend URL:
+Default frontend URL:
 
-- `http://localhost:5173`
+```text
+http://localhost:5173
+```
 
-If port `5173` is already in use, Vite may start on the next free port, for example `http://127.0.0.1:5174`. The backend already allows local Vite ports `5173-5179`.
+If `5173` is busy, Vite may use another local port such as `5174`. The backend CORS policy allows local Vite ports from `5173` through `5179`.
 
-If the backend URL changes, create `.env.local`:
+If the API URL changes, define it in:
 
-```bash
+```text
+frontend/online-quiz-client/.env.local
+```
+
+Example:
+
+```text
 VITE_API_URL=http://localhost:5043/api
 ```
 
+## Demo Flow
+
+1. Start the backend and frontend.
+2. Log in as Admin.
+3. Open **Questions** and review the supported question types.
+4. Open **Quizzes** and confirm `Mixed Question Types Quiz` exists.
+5. Log out and log in as Student.
+6. Start `Mixed Question Types Quiz`.
+7. Answer single-choice, multiple-choice, text, matching, ordering, code-output, and Big O questions.
+8. Submit the quiz.
+9. Review the result page with explanations and correct answers.
+10. Log in as Admin and open **Attempts** to review the submitted attempt.
+
+More manual validation steps are listed in [docs/manual-test-checklist.md](docs/manual-test-checklist.md).
+
 ## Import Quiz Format
 
-Admin can import a quiz from **Admin > Quizzes > Import quiz**.
-
-Supported sources:
+Admins can import a quiz from:
 
 - Excel `.xlsx`
 - PDF `.pdf`
 - Text `.txt` / `.md`
 - Pasted form text
 
-Excel must use this header row:
+Current import support creates `SingleChoice` questions only. Other question types can be created from **Admin > Questions**.
+
+Excel header format:
 
 ```text
 Topic | Difficulty | Question | A | B | C | D | Correct | Explanation
 ```
 
-Text/PDF must use question blocks like this, separated by `---`:
+Text/PDF block format:
 
 ```text
 Topic: Stack
@@ -135,50 +235,66 @@ Explanation: Stack uses last-in, first-out.
 ---
 ```
 
-`Difficulty` accepts `Easy`, `Medium`, `Hard` or Vietnamese equivalents `Dễ`, `Trung bình`, `Khó`. `Correct` accepts `A`, `B`, `C`, `D`, or numeric indexes `0-3` / `1-4`.
+Accepted difficulty values:
 
-During import, missing topics are created automatically. Existing questions with the same content are reused; new questions are added to the question bank and attached to the imported quiz.
+```text
+Easy, Medium, Hard
+De, Trung binh, Kho
+```
 
-## Default Accounts
-
-| Role | Email | Password |
-| --- | --- | --- |
-| Admin | `admin@quiz.com` | `Admin@123` |
-| Student | `student@quiz.com` | `Student@123` |
+`Correct` accepts `A`, `B`, `C`, `D`, or numeric indexes `0-3` / `1-4`.
 
 ## API Documentation
 
-Run the backend and open Swagger at `http://localhost:5043/swagger`.
-
-Short endpoint notes are available in `docs/api-notes.md`.
-
-## Project Structure
+Run the backend and open Swagger:
 
 ```text
-OnlineQuizSystem/
-├── backend/
-│   ├── OnlineQuiz.Api/
-│   ├── OnlineQuiz.Application/
-│   ├── OnlineQuiz.Domain/
-│   ├── OnlineQuiz.Infrastructure/
-│   └── OnlineQuiz.Tests/
-├── frontend/
-│   └── online-quiz-client/
-├── database/
-│   └── scripts/
-├── docs/
-│   ├── screenshots/
-│   └── api-notes.md
-└── README.md
+http://localhost:5043/swagger
 ```
 
-## Future Improvements
+Additional endpoint notes and JSON payload examples are available in [docs/api-notes.md](docs/api-notes.md).
 
-- Add pagination for questions and attempt lists.
-- Add CSV import/export for question banks.
-- Add timed auto-submit on the frontend.
-- Add refresh tokens.
-- Add richer charts for admin analytics.
+## Validation Commands
+
+Backend:
+
+```powershell
+cd D:\file_hoc_tap\project\OnlineQuizSystem\backend
+dotnet build
+dotnet test
+```
+
+Frontend:
+
+```powershell
+cd D:\file_hoc_tap\project\OnlineQuizSystem\frontend\online-quiz-client
+npm run lint
+npm run build
+```
+
+## Current Status
+
+Implemented:
+
+- Authentication and authorization
+- Admin topic/question/quiz management
+- Multiple question types
+- Quiz attempt flow
+- Automatic grading
+- Result review
+- Admin attempt review
+- Dashboard statistics
+- English/Vietnamese UI switcher
+- Import format guide
+- README and API documentation
+
+Planned improvements:
+
+- Pagination for large question and attempt lists.
+- Import/export support for all question types.
+- Timed auto-submit on the frontend.
+- Refresh tokens.
+- Richer chart visualizations for admin analytics.
 
 ## Author
 

@@ -31,6 +31,7 @@ public static class DependencyInjection
 
         services.Configure<JwtSettings>(configuration.GetSection(JwtSettings.SectionName));
         services.AddScoped<IJwtTokenService, JwtTokenService>();
+        services.AddScoped<IQuizGradingService, QuizGradingService>();
         services.AddScoped<IQuizAttemptService, QuizAttemptService>();
 
         return services;
